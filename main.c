@@ -4,7 +4,7 @@
 #include <time.h>
 
 #define MIN_PLAYERS 2
-#define MAX_PLAYERS 5
+#define MAX_PLAYERS 20
 
 #define MAX_LIFE_POINTS 2
 
@@ -16,11 +16,14 @@
 #define VALUES 10
 #define TOTAL_NUMBER_CARDS 40
 
+#define SIZE_CARD_TYPE 10
+#define SIZE_CARD_VALUE 3
+#define SIZE_NAME 50
 
 typedef struct
 {
-    char cardType[10];
-    char cardValue[3];
+    char cardType[SIZE_CARD_TYPE];
+    char cardValue[SIZE_CARD_VALUE];
 } CARDS;
 
 // static means it must be not modified
@@ -28,11 +31,14 @@ static CARDS basedeck[TOTAL_NUMBER_CARDS] = { 0 };
 
 typedef struct
 {
-    char name[50];
-    CARDS deck[MAX_CARDS_PLAYERS];
+    char name[SIZE_NAME];
+    CARDS visibleCard[1];
+    CARDS hiddenCard[1];
     int lifePoints;
     int round;
 } PLAYER;
+
+int gameLifePoints = 0;
 
 // Game development main methods
 /*
@@ -63,12 +69,8 @@ Cosa significa in ordine crescente ad anello?
 – Se il primo giocatore `e G1, la fase seguir`a i turni di G1 → G2 → G3
 – Se il primo giocatore `e G2, la fase seguir`a i turni di G2 → G3 → G1
 – Se il primo giocatore `e G3, la fase seguir`a i turni di G3 → G1 → G2
-
-void assignsTurnsToPlayers();
-void applyUncoveredCardEffect();
-void showHiddenCard(); // Give player the choice to apply or not the effect
-void checkThePlayersWhoLost(); // Il gioco termina quando rimane solo un giocatore al termine di una fase e gli altri sono stati tutti eliminati.
 */
+int checkPlayersLifePoints(PLAYER *players, int *numberOfPlayers); // Il gioco termina quando rimane solo un giocatore al termine di una fase e gli altri sono stati tutti eliminati.
 
 // Cards effect
 /*
@@ -84,7 +86,7 @@ per le successive se non sono state riscosse).
 • Carta K: il giocatore in possesso della carta, riceve tutti i punti vita lasciati sul campo di
 gioco fino a quel momento.
 */
-//void applyGenericCardEffects();
+void applyCardEffect(CARDS *targetCard, PLAYER *players, int *indexPlayerTurn);
 
 int main(void)
 {
@@ -100,6 +102,75 @@ int main(void)
     deckShuffle(deck, TOTAL_NUMBER_CARDS);
     dealCardsToPlayers(players, deck, &numberOfPlayers);
     selectFirstPlayerToPlay(players, &numberOfPlayers);
+    
+    int indexPlayer = 0;
+    while (numberOfPlayers > 0)
+    {
+        // check players life points
+        int result = checkPlayersLifePoints(players, &numberOfPlayers);
+        if (result == 1)
+        {
+            PLAYER winnerPlayer;
+            for (int i; i < numberOfPlayers; i++)
+            {
+                if (players[i].lifePoints > 0)
+                {
+                    winnerPlayer = players[i];
+                }
+            }
+            printf("Game ended, the winner is the player %s\n", winnerPlayer.name);
+            break;
+        }
+
+        // If player doesn't have life points go to the next player
+        if (players[indexPlayer].lifePoints == 0)
+        {
+            numberOfPlayers--;
+            indexPlayer++;
+            continue;
+        }
+        
+        printf("Turn for player: %s \n", players[indexPlayer].name);
+        players[indexPlayer].round++;
+        puts("Press enter to see the effect of your visible card"); 
+        char enter = 0;
+        while (enter != '\r' && enter != '\n') { enter = getchar(); }
+        puts("");
+
+        // show visible card effect
+        applyCardEffect(players[indexPlayer].visibleCard, players, &indexPlayer);
+        puts("");
+
+        // check if the hidden card is already visible 
+        puts("You can see your hidden card and optionally show it to apply the effect."); 
+
+        int userInput = -1;
+        puts("Enter 1 to see the hidden card or 0 to finish the turn: "); 
+        scanf("%d", &userInput);
+        switch (userInput)
+        {
+            case 1:
+                // see hidden card
+                printf("Card Type and value: %s %s\n", players[indexPlayer].hiddenCard->cardType, players[indexPlayer].hiddenCard->cardValue);
+                int showHiddenCard = -1;
+                puts("Enter 1 to apply the effect of the card or 0 to finish the turn: "); 
+                scanf("%d", &showHiddenCard);
+                if (showHiddenCard == 1)
+                {
+                    applyCardEffect(players[indexPlayer].hiddenCard, players, &indexPlayer);
+                }
+                puts("");
+                break;
+            case 0:
+                // next player turn
+                break;
+            default:
+                // wrong answer
+                break;
+        }
+
+        indexPlayer++;
+    }
 
     return 0;
 }
@@ -192,7 +263,8 @@ void dealCardsToPlayers(PLAYER *players, CARDS *deck, int *numberOfPlayers)
         for (int j = 0; j < MAX_CARDS_PLAYERS; j++)
         {
             printf("Card: %s %s\n", deck[deckIndex].cardType, deck[deckIndex].cardValue);
-            players[i].deck[j] = deck[deckIndex];
+            players[i].visibleCard[j] = deck[deckIndex];
+            players[i].hiddenCard[j] = deck[deckIndex++];
             deckIndex++;
         }
     }
@@ -220,4 +292,72 @@ void selectFirstPlayerToPlay(PLAYER *players, int *numberOfPlayers)
     }
 
     free(originalPlayers);  // Cleanup
+}
+
+void applyCardEffect(CARDS *targetCard, PLAYER *players, int *indexPlayerTurn)
+{
+    printf("Card Type and value: %s %s\n", *targetCard->cardType, *targetCard->cardValue);
+    switch (*targetCard->cardValue)
+    {
+        /* Carta 1: il giocatore in possesso della carta perde 1 punto vita, che verr`a lasciata sul campo di gioco 
+        (le vite sul campo di gioco non vengono resettate a ogni fase, quindi rimangono anche per le successive se non sono state riscosse).*/
+        case '1':
+            printf("Player %s lost 1 life points\n", *players[*indexPlayerTurn].name);
+            players[*indexPlayerTurn].lifePoints--; 
+            gameLifePoints++;
+            break;
+        //Carta 7: il giocatore in possesso della carta forza il giocatore successivo a scoprire la sua carta coperta e ad applicarne l’effetto.
+        case '7':
+            printf("The next player's hidden card will be show and the effect will applyed\n", *players[*indexPlayerTurn].name);
+            applyCardEffect(players[*indexPlayerTurn + 1].hiddenCard, players, (indexPlayerTurn + 1));
+            break;
+        //Carta J: il giocatore in possesso della carta deve dare 1 punto vita al giocatore precedente.
+        case 'J':
+            printf("Player %s have to give 1 life point to the previous player\n", *players[*indexPlayerTurn].name);
+            players[*indexPlayerTurn].lifePoints--; 
+            players[*indexPlayerTurn - 1].lifePoints++; 
+            break;
+        //Carta K: il giocatore in possesso della carta, riceve tutti i punti vita lasciati sul campo digioco fino a quel momento.
+        case 'K':
+            printf("Player %s take all game life points\n", *players[*indexPlayerTurn].name);
+            players[*indexPlayerTurn].lifePoints += gameLifePoints;
+            gameLifePoints = 0; // rest game life points 
+            break;
+        //Carta Q: il giocatore in possesso della carta deve dare 1 punto vita al secondo giocatoresuccessivo (cio`e, saltando un giocatore).
+        case 'Q':
+            printf("Player %s have to give 1 life point to the player %s\n", *players[*indexPlayerTurn].name, *players[*indexPlayerTurn + 2].name);
+            players[*indexPlayerTurn].lifePoints--; 
+            players[*indexPlayerTurn + 2].lifePoints++; 
+            break;
+        default:
+            puts("The given card doens't have any special effect to apply");
+            break;
+    }
+}
+
+int checkPlayersLifePoints(PLAYER *players, int *numberOfPlayers)
+{
+    int losers = 0;
+    int winners = 0;
+
+    for (int i; i < *numberOfPlayers; i++)
+    {
+        if (players[i].lifePoints == 0)
+        {
+            losers++;
+        }
+        else
+        {
+            winners++;
+        }
+    }
+
+    if (winners == 1) // If remain only one player the game finishes
+    {
+        return 1;
+    }
+    else // The game continue
+    {
+        return 0;
+    }
 }
