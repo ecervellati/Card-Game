@@ -27,9 +27,6 @@ typedef struct
     int isCardVisible;
 } CARDS;
 
-// static means it must be not modified
-static CARDS basedeck[TOTAL_NUMBER_CARDS] = { 0 };
-
 typedef struct
 {
     char name[SIZE_NAME];
@@ -41,86 +38,56 @@ typedef struct
 
 int gameLifePoints = 0;
 
-// Game development main methods
-/*
-1. Mescolare il mazzo
-2. Distribuire ad ogni giocatore 2 carte: una coperta e una scoperta.
-3. Scegliere casualmente il primo giocatore della fase.
-*/
-void welcomeToTheGame(int *numberOfPlayers);
-PLAYER* initializePlayers(int *numberOfPlayers, int lifePoints);
-void buildBaseDeck(CARDS *deck);
-void deckShuffle(CARDS *deck, int numberOfCards);
+// Funzioni main per le fasi di gioco
+void initializeNumberOfPlayers(int *numberOfPlayers);
+PLAYER* initializePlayers(int *numberOfPlayers, int *lifePoints);
+CARDS* buildBaseDeck();
+void deckShuffle(CARDS *deck);
 void dealCardsToPlayers(PLAYER *players, CARDS *deck, int *numberOfPlayers);
 void selectFirstPlayerToPlay(PLAYER *players, int *numberOfPlayers);
 void displayGameField(PLAYER *players, int *numberOfPlayers);
 void gamePhase(PLAYER *players, CARDS *deck, int *numberOfPlayers);
 void removeDeadPlayers(PLAYER *players, int *numberOfPlayers);
 
-// Game development phase
-/*
-La fase si svolge dando a ciascun giocatore un turno. A partire dal primo giocatore, in ordine crescente
-ad anello, il giocatore nel suo turno:
-1. Deve risolvere l’effetto della propria carta scoperta (vedi effetto carte).
-2. Pu`o visionare la propria carta coperta e opzionalmente scoprirla per applicarne l’effetto. Nel
-caso fosse gi`a scoperta per effetto di altre carte, non sar`a possibile applicarne nuovamente il suo
-effetto.
-1
-3. Il giocatore termina la propria giocata cedendo il turno al giocatore successivo. Alla fine del
-turno di tutti i giocatori, la fase si conclude e chi non ha pi`u vite viene eliminato.
-Cosa significa in ordine crescente ad anello?
-• Supponiamo di avere 3 giocatori (G1, G2, G3)
-– Se il primo giocatore `e G1, la fase seguir`a i turni di G1 → G2 → G3
-– Se il primo giocatore `e G2, la fase seguir`a i turni di G2 → G3 → G1
-– Se il primo giocatore `e G3, la fase seguir`a i turni di G3 → G1 → G2
-*/
-int checkPlayersLifePoints(PLAYER *players, int *numberOfPlayers); // Il gioco termina quando rimane solo un giocatore al termine di una fase e gli altri sono stati tutti eliminati.
-
-// Cards effect
-/*
-• Carte dal 2 al 6: non succede nulla.
-• Carta 7: il giocatore in possesso della carta forza il giocatore successivo a scoprire la sua carta
-coperta e ad applicarne l’effetto.
-• Carta J: il giocatore in possesso della carta deve dare 1 punto vita al giocatore precedente.
-• Carta Q: il giocatore in possesso della carta deve dare 1 punto vita al secondo giocatore
-successivo (cio`e, saltando un giocatore).
-• Carta 1: il giocatore in possesso della carta perde 1 punto vita, che verr`a lasciata sul campo
-di gioco (le vite sul campo di gioco non vengono resettate a ogni fase, quindi rimangono anche
-per le successive se non sono state riscosse).
-• Carta K: il giocatore in possesso della carta, riceve tutti i punti vita lasciati sul campo di
-gioco fino a quel momento.
-*/
+// Funzioni per effetto carte
 int displayCardEffect(CARDS *targetCard);
-void applyCardEffect(CARDS *targetCard, PLAYER *players, int *indexPlayerTurn, int *numberOfPlayers);
+void applyCardEffect(CARDS *targetCard, PLAYER *players, int *indexPlayerTurn, int *numberOfPlayers, int printCardInfo);
+
+// Funzioni generiche (utils)
 int getIntInput(int min, int max);
 int getWrappedIndex(int baseIndex, int offset, int numberOfPlayers);
+int resetIndex(int *indexPlayer, int *numberOfPlayers);
 
 int main(void)
 {
     int numberOfPlayers = 0;
-    puts("");
-    puts("Hi, welcome to the funcy cards game.\n\nThe number of players to play with is between 2 and 20");
-    puts("Each player has 2 life points, the last one remaining will be the winner"); 
-    printf("If you want increase the life points of the players enter 1, otherwise 0 to continue: "); 
-    int userInput = getIntInput(0, 1);
     int lifePoints = 2;
+
+    puts("");
+    puts("Ciao, benvenuto al gioco di carte senza nome.\n\nIl numero di giocatori dev'essere compreso tra 2-20");
+    puts("Ogni giocatore ha 2 life points, vince chi rimane in vita per ultimo");
+    printf("Vuoi cambiare i life points dei giocatori? [Si=1/No=0]: "); 
+
+    int userInput = getIntInput(0, 1);
     if (userInput == 1) {
-        printf("Enter the life point value each player will have: ");
-        lifePoints = getIntInput(1, 10000);
+        printf("Inserisci il valore dei life points che ogni giocatore avrà: ");
+        lifePoints = getIntInput(2, 10000);
     }
-    welcomeToTheGame(&numberOfPlayers);
 
-    PLAYER *players = initializePlayers(&numberOfPlayers, lifePoints);
-    CARDS deck[TOTAL_NUMBER_CARDS];
-    memcpy(deck, basedeck, sizeof(deck)); // Copy basedeck array to deck array
-    buildBaseDeck(deck);
+    initializeNumberOfPlayers(&numberOfPlayers);
+    PLAYER *players = initializePlayers(&numberOfPlayers, &lifePoints);
+    CARDS *deck = buildBaseDeck();
 
+    // Main game phase
     do
     {
         gamePhase(players, deck, &numberOfPlayers);
     }
     while (numberOfPlayers > 1);
     
+    free(players);
+    free(deck);
+
     return 0;
 }
 
@@ -129,74 +96,114 @@ void gamePhase(PLAYER *players, CARDS *deck, int *numberOfPlayers)
     int indexPlayer = 0;
     int phase = 1;
 
-    deckShuffle(deck, TOTAL_NUMBER_CARDS);
+    deckShuffle(deck);
     dealCardsToPlayers(players, deck, numberOfPlayers);
     selectFirstPlayerToPlay(players, numberOfPlayers);
 
     while (phase > 0)
     {
         removeDeadPlayers(players, numberOfPlayers);
-        // Check if only one player is alive
-        int alivePlayers = checkPlayersLifePoints(players, numberOfPlayers);
-        if (alivePlayers == 1)
+
+        // Se dopo la rimozione abbiamo un solo player la partitai si conclude
+        if (*numberOfPlayers == 1)
         {
-            // Declare the winner
-            for (int i = 0; i < *numberOfPlayers; i++)
-            {
-                if (players[i].lifePoints > 0)
-                {
-                    printf("Game ended, the winner is the player %s\n", players[i].name);
-                    return;
-                }
-            }
+            printf("Partita terminata, vincitore: %s", players[0].name);
+            return;
         }
 
-        // Skip dead players
+        // Se il giocatore corrente è morto faccio il reset dell'index (se necessario)
         if (players[indexPlayer].lifePoints == 0)
         {
-            indexPlayer = (indexPlayer + 1) % (*numberOfPlayers);
+            resetIndex(&indexPlayer, numberOfPlayers);
             continue;
         }
 
         displayGameField(players, numberOfPlayers);
-        printf("Turn for player: %s \n", players[indexPlayer].name);
+        printf("Turno del giocatore: %s \n\n", players[indexPlayer].name);
         players[indexPlayer].round++;
 
-        printf("Effect of your visible card:");
-        applyCardEffect(players[indexPlayer].visibleCard, players, &indexPlayer, numberOfPlayers);
+        puts("Risoluzione effetto carta scoperta:");
+        applyCardEffect(players[indexPlayer].visibleCard, players, &indexPlayer, numberOfPlayers, 1);
+
+        // Se il giocatore corrente è morto faccio il reset dell'index (se necessario)
+        if (players[indexPlayer].lifePoints == 0)
+        {
+            resetIndex(&indexPlayer, numberOfPlayers);
+            continue;
+        }
 
         if (players[indexPlayer].hiddenCard->isCardVisible == 1)
         {
-            puts("Hidden card already visible, going to the next player...");
+            puts("La carta coperta ed il suo effetto sono già stati applicati");
+            printf("Inserisci 1 per cedere il turno al giocatore successivo: ");
+            int userInput = getIntInput(1, 1);
+            puts("");
+            printf("%s turno completato\n", players[indexPlayer].name);
+            
+            // Se tutti i giocatori hanno giocato il proprio turno si conclude la fase di gioco
+            int completedRounds = 0;
+            for (int i = 0; i < *numberOfPlayers; i++)
+            {
+                if (players[i].round == 1)
+                    completedRounds++;
+            }
+
+            if (completedRounds == *numberOfPlayers)
+            {
+                phase = 0;
+                puts("Fase finita, inizio di una nuova fase...\n");
+            }
+
             indexPlayer = (indexPlayer + 1) % (*numberOfPlayers);
             continue;
         }
 
-        puts("You can see your hidden card and optionally show it to apply the effect.");
-        printf("Enter 1 to see the hidden card or 0 to finish the turn: ");
+        puts("È possibile vedere la carta coperta ed opzionalmente scoprirla per applicarne l'effetto.\n");
+        printf("Vuoi vedere la carta coperta? [Si=1/No=0]: ");
         int userInput = getIntInput(0, 1);
+        puts("");
 
         if (userInput == 1)
         {
-            // Reveal and optionally apply hidden card
-            printf("Card Type and Value: %s %s\n", players[indexPlayer].hiddenCard->cardType, players[indexPlayer].hiddenCard->cardValue);
+            printf("Tipo carta e valore: %s %s", players[indexPlayer].hiddenCard->cardType, players[indexPlayer].hiddenCard->cardValue);
             int hasCardEffect = displayCardEffect(players[indexPlayer].hiddenCard);
             if (hasCardEffect)
             {
-                printf("Enter 1 to apply the effect of the card or 0 to finish the turn: ");
+                printf("Si vuole applicarne l'effetto? [Si=1/No=0]: ");
                 int showHiddenCard = getIntInput(0, 1);
+                
+                // Se il giocatore ha un solo punto vita chiediamo se è sicuro di voler applicare l'effetto della carta
+                if (players[indexPlayer].lifePoints == 1 && showHiddenCard == 1)
+                {
+                    switch (*players[indexPlayer].hiddenCard->cardValue)
+                    {
+                        case '1':
+                        case 'J':
+                        case 'Q':
+                            printf("L'azione porta ad azzerare le vite del giocatore corrente. Sei sicuro di voler procedere? [Si=1/No=0]: ");
+                            showHiddenCard = getIntInput(0, 1);
+                            break;
+                        default:
+                            break;
+                    }
+                }
+                
                 if (showHiddenCard == 1)
                 {
-                    applyCardEffect(players[indexPlayer].hiddenCard, players, &indexPlayer, numberOfPlayers);
-                    removeDeadPlayers(players, numberOfPlayers);
                     players[indexPlayer].hiddenCard->isCardVisible = 1;
-                    displayGameField(players, numberOfPlayers);
+                    applyCardEffect(players[indexPlayer].hiddenCard, players, &indexPlayer, numberOfPlayers, 0);
                 }
             }
-            
+            else    // Se non ha alcun effetto la rendiamo visibile di default 
+                players[indexPlayer].hiddenCard->isCardVisible = 1;
         }
 
-        // Check if all players had one round
+        printf("Inserisci 1 per cedere il turno al giocatore successivo: ");
+        userInput = getIntInput(1, 1);
+        puts("\n");
+        printf("%s turno completato\n", players[indexPlayer].name);
+        
+        // Se tutti i giocatori hanno giocato il proprio turno si conclude la fase di gioco
         int completedRounds = 0;
         for (int i = 0; i < *numberOfPlayers; i++)
         {
@@ -206,39 +213,45 @@ void gamePhase(PLAYER *players, CARDS *deck, int *numberOfPlayers)
 
         if (completedRounds == *numberOfPlayers)
         {
-            phase = 0;  // End current phase
-            puts("Phase finished, starting another phase...");
-            completedRounds = 0;
+            phase = 0;
+            puts("Fase finita, inizio di una nuova fase...\n");
         }
 
-        indexPlayer = (indexPlayer + 1) % (*numberOfPlayers);
+        // Se il giocatore corrente è morto faccio il reset dell'index (se necessario)
+        if (players[indexPlayer].lifePoints == 0)
+        {
+            resetIndex(&indexPlayer, numberOfPlayers);
+            continue;
+        }
+        else
+            indexPlayer = (indexPlayer + 1) % (*numberOfPlayers);
     }
 }
 
-void welcomeToTheGame(int *numberOfPlayers)
+void initializeNumberOfPlayers(int *numberOfPlayers)
 {
-    printf("Please insert the number of players: ");
+    printf("Inserire il numero di giocatori [2-20]: ");
     scanf("%d", &*numberOfPlayers);
     puts("");
 
     if (*numberOfPlayers < MIN_PLAYERS || *numberOfPlayers > MAX_PLAYERS)
     {
-        puts("Wrong number of players, please enter a number of players between 2 and 20");
+        puts("Numero di giocatori non valido, inserire un numero di giocatori compreso tra 2 e 20");
         puts("");
-        welcomeToTheGame(numberOfPlayers);
+        initializeNumberOfPlayers(numberOfPlayers);
     }
 }
 
-PLAYER* initializePlayers(int *numberOfPlayers, int lifePoints)
+PLAYER* initializePlayers(int *numberOfPlayers, int *lifePoints)
 {
     PLAYER *players = malloc(*numberOfPlayers * sizeof(PLAYER));
     if (players == NULL) {
-        puts("Error: Memory allocation failed!");
-        exit(1);
+        puts("Errore: Allocazione della memoria fallita!");
+        exit(EXIT_FAILURE);
     }
 
     for (int i = 0; i < *numberOfPlayers; i++) {
-        players[i].lifePoints = lifePoints;
+        players[i].lifePoints = *lifePoints;
         players[i].round = 0;
         sprintf(players[i].name, "Player %d", i + 1);
     }
@@ -246,9 +259,15 @@ PLAYER* initializePlayers(int *numberOfPlayers, int lifePoints)
     return players;
 }
 
-void buildBaseDeck(CARDS *deck) 
+CARDS* buildBaseDeck() 
 {
-    char *cardTypeNames[TYPES] = { "Flowers", "Picche", "Quadri", "Hearts"};
+    CARDS *deck = malloc(TOTAL_NUMBER_CARDS * sizeof(CARDS));
+    if (deck == NULL) {
+        puts("Errore: Allocazione della memoria fallita!");
+        exit(EXIT_FAILURE);
+    }
+
+    char *cardTypeNames[TYPES] = { "Fiori", "Picche", "Quadri", "Cuori"};
     char *cardValuesNames[VALUES] = { "1", "2", "3", "4", "5", "6", "7", "J", "K", "Q"};
 
     int deckIndex = 0;
@@ -259,14 +278,15 @@ void buildBaseDeck(CARDS *deck)
             deckIndex++;
         }
     }
+    return deck;
 }
 
-void deckShuffle(CARDS *deck, int numberOfCards)
+void deckShuffle(CARDS *deck)
 {
     srand(time(NULL));
-    int numberOfCardsToProcess = (numberOfCards - 1);
+    int numberOfCardsToProcess = (TOTAL_NUMBER_CARDS - 1);
 
-    // First deck shuffle
+    // Primo mescolamento del deck
     while (numberOfCardsToProcess > 0) {
         int randomCard = rand() % (numberOfCardsToProcess + 1);
         CARDS temp = deck[numberOfCardsToProcess];
@@ -275,15 +295,15 @@ void deckShuffle(CARDS *deck, int numberOfCards)
         --numberOfCardsToProcess;
     }
 
-    // Second deck shuffle
-    for (int i = 1; i < numberOfCards; i++) 
+    // Secondo mescolamento del deck
+    for (int i = 1; i < TOTAL_NUMBER_CARDS; i++) 
     {
-        // Check if adjacent cards types are equals
+        // Controllo se le carte adiacenti siano dello stesso tipo o dello stesso valore
         if (strcmp(deck[i].cardType, deck[i - 1].cardType) == 0 || strcmp(deck[i].cardValue, deck[i - 1].cardValue) == 0) 
         { 
-            for (int j = i + 1; j < numberOfCards; j++) 
+            for (int j = i + 1; j < TOTAL_NUMBER_CARDS; j++) 
             {
-                // Find card with different type and value
+                // Cerco un'altra carta di un tipo e valore diverso
                 if (strcmp(deck[j].cardType, deck[i - 1].cardType) != 0 && strcmp(deck[j].cardValue, deck[i - 1].cardValue) != 0) 
                 {
                     CARDS temp = deck[i];
@@ -294,10 +314,6 @@ void deckShuffle(CARDS *deck, int numberOfCards)
             }
         }
     }
-
-    for (int i = 0; i < numberOfCards; i++) {
-        printf("Card: %s %s\n", deck[i].cardType, deck[i].cardValue);
-    }
 }
 
 void dealCardsToPlayers(PLAYER *players, CARDS *deck, int *numberOfPlayers)
@@ -305,13 +321,10 @@ void dealCardsToPlayers(PLAYER *players, CARDS *deck, int *numberOfPlayers)
     int deckIndex = 0;
     for (int i = 0; i < *numberOfPlayers; i++) 
     {
-        printf("Player: %s \n", players[i].name);
         players[i].visibleCard[0] = deck[deckIndex];
         players[i].hiddenCard[0] = deck[++deckIndex];
         players[i].hiddenCard->isCardVisible = 0;
         deckIndex++;
-        printf("Card visible: %s %s\n", players[i].visibleCard[0].cardType, players[i].visibleCard[0].cardValue);
-        printf("Card hidden: %s %s\n", players[i].hiddenCard[0].cardType, players[i].hiddenCard[0].cardValue);
     }
 }
 
@@ -321,22 +334,24 @@ void selectFirstPlayerToPlay(PLAYER *players, int *numberOfPlayers)
     int randomPlayer = rand() % (*numberOfPlayers + 1);
 
     PLAYER *originalPlayers = malloc(*numberOfPlayers * sizeof(PLAYER));
-    if (players == NULL) {
-        puts("Error: Memory allocation failed!");
-        exit(1);
+    if (originalPlayers == NULL) {
+        puts("Errore: Allocazione della memoria fallita!");
+        exit(EXIT_FAILURE);
     }
 
     memcpy(originalPlayers, players, *numberOfPlayers * sizeof(PLAYER));
 
-    // Order players ascending
+    // Prendo un giocatore casuale in base al numero di giocatori
+    // Ordino l'array in ascending
     for (int i = 0; i < *numberOfPlayers; i++) 
     {
         int nextPlayer = (randomPlayer + i) % *numberOfPlayers;
         players[i] = originalPlayers[nextPlayer];
-        //printf("Player %d: %s\n", i + 1, players[i].name);
+        players[i].round = 0;
+        printf("%d: %s\n", i + 1, players[i].name);
     }
 
-    free(originalPlayers);  // Cleanup
+    free(originalPlayers);
 }
 
 int displayCardEffect(CARDS *targetCard)
@@ -347,27 +362,27 @@ int displayCardEffect(CARDS *targetCard)
     switch (*targetCard->cardValue)
     {
         case '1':
-            puts("Effect: The player in possession of the card lost 1 life points");
+            puts("Effetto: il giocatore in possesso della carta perde 1 life point, che verrà lasciato sul campo di gioco");
             break;
 
         case '7':
-            puts("Effect: The next player's hidden card will be show and the effect will applyed");
+            puts("Effetto: il giocatore in possesso della carta forza il giocatore successivo a scoprire la sua carta coperta e ad applicarne l'effetto");
             break;
 
         case 'J':
-            puts("Effect: The player in possession of the card give 1 life point to the previous player");
+            puts("Effetto: il giocatore in possesso della carta deve dare 1 life point al giocatore precedente");
             break;
 
         case 'K':
-            puts("Effect: The player in possession of the card takes all game field life points");
+            puts("Effetto: il giocatore in possesso della carta, riceve tutti i punti vita lasciati sul campo di gioco");
             break;
 
         case 'Q':
-            puts("Effect: The player in possession of the card must give 1 life point to the second player next");
+            puts("Effetto: il giocatore in possesso della carta deve dare 1 life point al secondo giocatore successivo");
             break;
 
         default:
-            puts("The given card doesn't have any special effect to apply");
+            puts("La carta non ha nessun effetto speciale");
             hasCardEffect = 0;
             break;
     }
@@ -376,10 +391,12 @@ int displayCardEffect(CARDS *targetCard)
     return hasCardEffect;
 }
 
-void applyCardEffect(CARDS *targetCard, PLAYER *players, int *indexPlayerTurn, int *numberOfPlayers)
+void applyCardEffect(CARDS *targetCard, PLAYER *players, int *indexPlayerTurn, int *numberOfPlayers, int printCardInfo)
 {
     puts("");
-    printf("Card Type and value: %s %s\n", targetCard->cardType, targetCard->cardValue);
+
+    if (printCardInfo)
+        printf("Tipo carta e valore: %s %s\n", targetCard->cardType, targetCard->cardValue);
 
     int currentPlayer = *indexPlayerTurn;
     int totalPlayers = *numberOfPlayers;
@@ -387,88 +404,72 @@ void applyCardEffect(CARDS *targetCard, PLAYER *players, int *indexPlayerTurn, i
     switch (*targetCard->cardValue)
     {
         case '1':
-            printf("%s lost 1 life point\n", players[currentPlayer].name);
+            printf("%s perde 1 life point\n", players[currentPlayer].name);
             players[currentPlayer].lifePoints--;
             gameLifePoints++;
             break;
 
         case '7':
             int nextPlayer = getWrappedIndex(currentPlayer, 1, totalPlayers);
-            printf("The next player's hidden card will be shown and the effect applied\n");
-            applyCardEffect(players[nextPlayer].hiddenCard, players, &nextPlayer, numberOfPlayers);
+            if (players[nextPlayer].hiddenCard->isCardVisible == 1)
+            {
+                printf("La carta coperta del giocatore %s risulta essere già scoperta ed attivata", players[nextPlayer].name);
+            }
+            else 
+            {
+                printf("La carta coperta del giocatore successivo verrà scoperta ed il suo effetto verrà applicato");
+                players[nextPlayer].hiddenCard->isCardVisible = 1;
+                applyCardEffect(players[nextPlayer].hiddenCard, players, &nextPlayer, numberOfPlayers, 1);
+            }
             break;
 
         case 'J':
             int previousPlayer = getWrappedIndex(currentPlayer, -1, totalPlayers);
-            printf("%s has to give 1 life point to %s\n", players[currentPlayer].name, players[previousPlayer].name);
+            printf("%s deve dare 1 life point al giocatore %s\n", players[currentPlayer].name, players[previousPlayer].name);
             players[currentPlayer].lifePoints--;
             players[previousPlayer].lifePoints++;
             break;
 
         case 'K':
-            printf("%s takes all game life points (%d)\n", players[currentPlayer].name, gameLifePoints);
+            printf("%s prende %d punti dal campo di gioco\n", players[currentPlayer].name, gameLifePoints);
             players[currentPlayer].lifePoints += gameLifePoints;
             gameLifePoints = 0;
             break;
 
         case 'Q':
             int targetPlayer = getWrappedIndex(currentPlayer, 2, totalPlayers);
-            printf("%s has to give 1 life point to %s\n", players[currentPlayer].name, players[targetPlayer].name);
+            printf("%s deve dare 1 life point al giocatore %s\n", players[currentPlayer].name, players[targetPlayer].name);
             players[currentPlayer].lifePoints--;
             players[targetPlayer].lifePoints++;
             break;
 
         default:
-            puts("This card has no special effect.");
+            puts("La carta non ha nessun effetto speciale");
             break;
     }
 
     puts("");
 }
 
-int checkPlayersLifePoints(PLAYER *players, int *numberOfPlayers)
-{
-    int losers = 0;
-    int winners = 0;
-
-    for (int i = 0; i < *numberOfPlayers; i++)
-    {
-        if (players[i].lifePoints == 0)
-        {
-            losers++;
-        }
-        else
-        {
-            winners++;
-        }
-    }
-
-    if (winners == 1) // If remain only one player the game finishes
-    {
-        return 1;
-    }
-    else // The game continue
-    {
-        return 0;
-    }
-}
-
 void displayGameField(PLAYER *players, int *numberOfPlayers) 
 {
     puts("");
-    printf("==== CARD TABLE ====\n\n");
+    printf("\n===================== CAMPO DI GIOCO ==================\n\n");
+    printf("        ************************************           \n");
+    printf("        *          Table points %d          *           \n", gameLifePoints);
+    printf("        ************************************          \n\n");
     for (int i = 0; i < *numberOfPlayers; i++) 
     {
         if (players[i].hiddenCard->isCardVisible == 1)
         {
-            printf("%s: [%s %s] [%s %s]\n", players[i].name, players[i].visibleCard->cardType, players[i].visibleCard->cardValue, players[i].hiddenCard->cardType, players[i].hiddenCard->cardValue);
+            printf("| %s | Life points %d | Carte: [%s %s] [%s %s]\n", players[i].name, players[i].lifePoints, players[i].visibleCard->cardType, players[i].visibleCard->cardValue, players[i].hiddenCard->cardType, players[i].hiddenCard->cardValue);
         }
         else
         {
-            printf("%s: [%s %s] [%s]\n", players[i].name, players[i].visibleCard->cardType, players[i].visibleCard->cardValue, "hidden");
+            printf("| %s | Life points %d | Carte: [%s %s] [%s]\n", players[i].name, players[i].lifePoints, players[i].visibleCard->cardType, players[i].visibleCard->cardValue, "coperta");
         }
     }
-    printf("\n====================\n");
+    printf("\n=======================================================\n\n");
 }
 
 void removeDeadPlayers(PLAYER *players, int *numberOfPlayers) 
@@ -478,7 +479,7 @@ void removeDeadPlayers(PLAYER *players, int *numberOfPlayers)
     {
         if (players[i].lifePoints > 0) 
         {
-            // Keep this player, move it to the new position
+            // Muovo il giocatore alla prossima posizione
             players[newCount++] = players[i];
         }
     }
@@ -491,15 +492,29 @@ int getIntInput(int min, int max)
     while (scanf("%d", &input) != 1 || input < min || input > max) 
     {
         while (getchar() != '\n');
-        printf("Invalid input. Try again (%d-%d): ", min, max);
+        printf("Input non valido. Riprovare (%d-%d): ", min, max);
     }
     return input;
 }
 
 int getWrappedIndex(int baseIndex, int offset, int numberOfPlayers) 
 {
+    // Reset dell'indice in caso di risultato negativo
     int result = (baseIndex + offset) % numberOfPlayers;
     if (result < 0)
         result += numberOfPlayers;
     return result;
+}
+
+/* 
+Se l'indice del giocatore senza life points > numero di giocatori rimasti -> diminuisco l'indice di 1
+Se l'indice del giocatore senza life points == (numero di giocatori rimasti - 1) -> reset dell'indice
+Se l'indice del giocatore senza life points < numero di giocatori rimasti -> non faccio nulla, perché il giocatore successivo 'scende' di posizione
+*/
+int resetIndex(int *indexPlayer, int *numberOfPlayers)
+{
+    if (*indexPlayer > *numberOfPlayers)
+        *indexPlayer--;
+    else if (*indexPlayer == (*numberOfPlayers - 1))
+        *indexPlayer = (*indexPlayer + 1) % (*numberOfPlayers);
 }
