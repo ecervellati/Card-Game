@@ -209,7 +209,7 @@ int main(void)
 
     int userInput = getIntInput(NO_INPUT, YES_INPUT);
     if (userInput == 1) {
-        printf("Inserisci il valore dei life points che ogni giocatore avrà: ");
+        printf("Inserisci il valore dei life points: ");
         lifePoints = getIntInput(MIN_LIFE_POINTS, MAX_LIFE_POINTS);
     }
 
