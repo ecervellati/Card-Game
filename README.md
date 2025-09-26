@@ -1,4 +1,4 @@
-# Insane-Card-Game
+# Card-Game
 Card Game – Programming Project
 
 This repository contains a C implementation of a card game designed as a programming assignment for the Introduction to Programming course.
